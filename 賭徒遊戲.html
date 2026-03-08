@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>賭徒模擬器：通膨生存戰</title>
+    <style>
+        /* 這裡是 CSS：負責把網頁變漂亮 */
+        body {
+            background-color: #1a1a2e; color: #e94560;
+            font-family: "Microsoft JhengHei", sans-serif;
+            text-align: center; margin: 0; padding: 20px;
+        }
+        #game-container {
+            max-width: 600px; margin: auto; background: #16213e;
+            padding: 20px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .status-board {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+            background: #0f3460; padding: 15px; border-radius: 10px;
+            color: #fff; text-align: left; margin-bottom: 20px; font-weight: bold;
+        }
+        #log {
+            background: #000; color: #0f0; height: 250px; overflow-y: auto;
+            text-align: left; padding: 10px; font-family: monospace;
+            border-radius: 5px; margin-bottom: 20px; line-height: 1.5;
+        }
+        button {
+            background-color: #e94560; color: white; border: none;
+            padding: 10px 20px; margin: 5px; font-size: 16px; border-radius: 5px;
+            cursor: pointer; transition: 0.3s;
+        }
+        button:hover { background-color: #ff2a4b; transform: scale(1.05); }
+        .hidden { display: none; }
+        .panel { background: #0f3460; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <h1>🎲 賭徒模擬器 🎲</h1>
+    
+    <div class="status-board">
+        <div>📅 天數: <span id="ui-day">1</span>/30</div>
+        <div>📈 通膨: <span id="ui-inf">0</span>%</div>
+        <div>💰 現金: <span id="ui-money">100</span></div>
+        <div>🏦 存款: <span id="ui-bank">0</span></div>
+        <div>🚨 警戒: <span id="ui-heat">0</span>/100</div>
+        <div>👮 賄賂: <span id="ui-bribe">0</span></div>
+        <div>🎰 機台: <span id="ui-ro">0</span></div>
+        <div>🏠 房屋保險: <span id="ui-pa">0</span></div>
+    </div>
+
+    <div id="log">歡迎來到賭徒模擬器！小心物價上漲，努力活過 30 天吧！<br></div>
+
+    <div id="main-menu">
+        <button onclick="work()">💼 乖乖工作</button>
+        <button onclick="showPanel('steal-panel')">🥷 鋌而走險 (偷竊)</button>
+        <button onclick="showPanel('gamble-panel')">🎰 地下賭場</button>
+        <button onclick="showPanel('bank-panel')">🏦 國民銀行</button>
+        <button onclick="showPanel('store-panel')">🛒 黑市商店</button>
+    </div>
+
+    <div id="steal-panel" class="panel hidden">
+        <h3>選擇目標 (警戒值越高，成功率越低)</h3>
+        <button onclick="steal('drunk')">路邊醉漢</button>
+        <button onclick="steal('store')">雜貨店</button>
+        <button onclick="steal('bank')">銀行</button>
+        <button onclick="showPanel('main-menu')">返回</button>
+    </div>
+
+    <div id="gamble-panel" class="panel hidden">
+        <h3>選擇遊戲</h3>
+        <button onclick="gambleDice()">🎲 擲骰大小 (1賠1)</button>
+        <button onclick="gambleNumber()">🔢 幸運數字 (1賠4)</button>
+        <button onclick="gambleRoulette()">🔫 俄羅斯輪盤</button>
+        <button onclick="showPanel('main-menu')">返回</button>
+    </div>
+
+    <div id="bank-panel" class="panel hidden">
+        <h3>每日利息 2%</h3>
+        <button onclick="bankAction('deposit')">存錢</button>
+        <button onclick="bankAction('withdraw')">提款</button>
+        <button onclick="showPanel('main-menu')">返回</button>
+    </div>
+
+    <div id="store-panel" class="panel hidden">
+        <h3>商品價格會隨通膨浮動！</h3>
+        <button onclick="buyItem('bribe', 500)">買賄賂警察</button>
+        <button onclick="buyItem('ro', 750)">買不賠錢機台</button>
+        <button onclick="buyItem('pa', 1000)">買房屋保險單</button>
+        <button onclick="showPanel('main-menu')">返回</button>
+    </div>
+</div>
+
+<script>
+    // 這裡是 JavaScript：負責遊戲的計算與邏輯
+    let m = 100, bm = 0, day = 1, heat = 0, inf = 1.0;
+    let pm = 0, ro = 0, pa = 0;
+
+    const targets = {
+        'drunk': { name: '路邊醉漢', base_prob: 0.85, min: 20, max: 50, fine: 50, heat_add: 10 },
+        'store': { name: '雜貨店', base_prob: 0.55, min: 150, max: 300, fine: 200, heat_add: 25 },
+        'bank': { name: '銀行', base_prob: 0.20, min: 800, max: 1500, fine: 1000, heat_add: 50 }
+    };
+
+    function updateUI() {
+        document.getElementById('ui-day').innerText = day;
+        document.getElementById('ui-inf').innerText = Math.round((inf - 1.0) * 100);
+        document.getElementById('ui-money').innerText = m;
+        document.getElementById('ui-bank').innerText = bm;
+        document.getElementById('ui-heat').innerText = heat;
+        document.getElementById('ui-bribe').innerText = pm;
+        document.getElementById('ui-ro').innerText = ro;
+        document.getElementById('ui-pa').innerText = pa;
+        
+        let logDiv = document.getElementById("log");
+        logDiv.scrollTop = logDiv.scrollHeight; // 自動捲動到最底下
+    }
+
+    function addLog(msg, color="white") {
+        let logDiv = document.getElementById("log");
+        logDiv.innerHTML += `<span style="color:${color}">${msg}</span><br>`;
+        updateUI();
+    }
+
+    function showPanel(panelId) {
+        document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+        document.getElementById('main-menu').classList.add('hidden');
+        if (panelId !== 'main-menu') {
+            document.getElementById(panelId).classList.remove('hidden');
+        } else {
+            document.getElementById('main-menu').classList.remove('hidden');
+        }
+    }
+
+    function calcErrors(expected, typed) {
+        if (!typed) return expected.length;
+        let errors = Math.abs(expected.length - typed.length);
+        let minLen = Math.min(expected.length, typed.length);
+        for(let i=0; i<minLen; i++) if (expected[i] !== typed[i]) errors++;
+        return errors;
+    }
+
+    // --- 玩家行動 ---
+    function work() {
+        heat = Math.max(0, heat - 15);
+        addLog("你選擇了安分工作，警戒值下降了！", "lightblue");
+        let phrases = ["努力工作才能賺大錢", "準時下班是我的目標", "工作帶來成就感"];
+        let p = phrases[Math.floor(Math.random() * phrases.length)];
+        let ans = prompt(`請輸入以下句子來工作：\n「${p}」`);
+        
+        let errs = calcErrors(p, ans);
+        if (errs === 0) {
+            let earn = Math.floor(Math.random() * 51) + 100;
+            m += earn; addLog(`✅ 打字完全正確，獲得了 ${earn} 元！`, "lime");
+        } else if (errs >= 5) {
+            addLog(`❌ 打字錯誤太多 (${errs} 處)，沒有獲得報酬。`, "red");
+        } else {
+            let base = Math.floor(Math.random() * 51) + 100;
+            let earn = Math.max(0, base - (errs * 10));
+            m += earn; addLog(`⚠️ 打字錯誤 (${errs} 處)，獲得 ${earn} 元。`, "yellow");
+        }
+        advanceTurn();
+    }
+
+    function steal(targetKey) {
+        let t = targets[targetKey];
+        let prob = Math.max(0.05, t.base_prob - (heat * 0.005));
+        showPanel('main-menu');
+        
+        if (Math.random() <= prob) {
+            let reward = Math.floor(Math.random() * (t.max - t.min + 1)) + t.min;
+            m += reward; heat = Math.min(100, heat + t.heat_add);
+            addLog(`🥷 偷竊成功！在【${t.name}】獲得 ${reward} 元！警戒上升 ${t.heat_add}！`, "lime");
+        } else {
+            if (pm > 0) {
+                pm--; addLog(`🚓 在【${t.name}】被抓了！但你用 1 次賄賂擺平了警察。`, "yellow");
+            } else {
+                let run = confirm(`🚓 在【${t.name}】被發現了！\n按【確定】拔腿就跑 (40%機率免罰，失敗罰雙倍)\n按【取消】乖乖繳 ${t.fine} 元罰款`);
+                if (run) {
+                    if (Math.random() <= 0.4) {
+                        heat = Math.min(100, heat + 20);
+                        addLog("🏃‍♂️ 驚險刺激！你成功甩掉了追兵！(警戒大增)", "lightblue");
+                    } else {
+                        m -= (t.fine * 2); addLog(`❌ 逃跑失敗被撲倒！罰款加倍扣除 ${t.fine * 2} 元！`, "red");
+                    }
+                } else {
+                    m -= t.fine; addLog(`💸 你無奈舉起雙手，被扣除 ${t.fine} 元。`, "red");
+                }
+            }
+        }
+        advanceTurn();
+    }
+
+    function gambleDice() {
+        showPanel('main-menu');
+        let bet = parseInt(prompt(`你想賭多少錢？(餘額: ${m})`));
+        if (isNaN(bet) || bet <= 0 || bet > m) { addLog("金額無效！", "red"); return; }
+        let guess = prompt("猜 大(輸入1) 還是 小(輸入2)？");
+        let dice = Math.floor(Math.random() * 6) + 1;
+        let isBig = dice > 3;
+        addLog(`🎲 骰子開出：【 ${dice} 】！`);
+        if ((guess == '1' && isBig) || (guess == '2' && !isBig)) {
+            m += bet; addLog(`🎉 猜對了！贏得 ${bet} 元`, "lime");
+        } else {
+            if (ro > 0) { ro--; addLog("機台保護發動！沒賠錢。", "yellow"); }
+            else { m -= bet; addLog(`💸 猜錯了！賠了 ${bet} 元`, "red"); }
+        }
+        advanceTurn();
+    }
+
+    function gambleNumber() {
+        showPanel('main-menu');
+        let bet = parseInt(prompt(`你想賭多少錢？(餘額: ${m})`));
+        if (isNaN(bet) || bet <= 0 || bet > m) { addLog("金額無效！", "red"); return; }
+        let guess = parseInt(prompt("猜 1~5 的數字："));
+        let ans = Math.floor(Math.random() * 5) + 1;
+        if (guess === ans) {
+            m += (bet * 4); addLog(`🎉 幸運女神眷顧！猜對 ${ans}，贏得 ${bet * 4} 元！`, "lime");
+        } else {
+            if (ro > 0) { ro--; addLog(`開出 ${ans}，機台保護發動！沒賠錢。`, "yellow"); }
+            else { m -= bet; addLog(`💸 開出 ${ans}！賠了 ${bet} 元`, "red"); }
+        }
+        advanceTurn();
+    }
+
+    function gambleRoulette() {
+        showPanel('main-menu');
+        addLog("🔫 你拿起了一把左輪手槍扣下扳機...");
+        if (Math.floor(Math.random() * 6) === 0) {
+            if (ro > 0) { ro--; addLog("💥 砰！機台保護抵銷了致命傷！", "yellow"); }
+            else { m = 0; addLog("💥 砰！你中彈了！現金全部歸零...", "red"); }
+        } else {
+            m += 500; addLog("😅 咔嚓！是空槍！你在生死邊緣活下來，獲得 500 元！", "lime");
+        }
+        advanceTurn();
+    }
+
+    function bankAction(type) {
+        showPanel('main-menu');
+        let amt = parseInt(prompt("請輸入金額："));
+        if (isNaN(amt) || amt <= 0) { addLog("金額無效！", "red"); return; }
+        if (type === 'deposit') {
+            if (amt > m) { addLog("現金不足！", "red"); return; }
+            m -= amt; bm += amt; addLog(`🏦 成功存入 ${amt} 元。`);
+        } else {
+            if (amt > bm) { addLog("存款不足！", "red"); return; }
+            bm -= amt; m += amt; addLog(`🏦 成功提出 ${amt} 元。`);
+        }
+        updateUI(); // 銀行不消耗回合
+    }
+
+    function buyItem(item, basePrice) {
+        let price = Math.floor(basePrice * inf);
+        if (m >= price) {
+            m -= price;
+            if (item === 'bribe') pm++;
+            if (item === 'ro') ro++;
+            if (item === 'pa') pa++;
+            addLog(`🛒 購買成功！花費 ${price} 元。`, "lime");
+        } else {
+            addLog(`❌ 你的現金不夠 ${price} 元！`, "red");
+        }
+        updateUI(); // 買東西不消耗回合
+    }
+
+    function advanceTurn() {
+        day++;
+        if (bm > 0) bm += Math.floor(bm * 0.02); // 銀行利息
+        if (heat > 0) heat = Math.max(0, heat - 2); // 警戒下降
+        inf += 0.05; // 通膨上漲
+
+        // 結算與事件
+        if (m < 0) {
+            addLog("💀 現金變為負數，你被黑道抓走了！遊戲結束。", "red");
+            gameOver(); return;
+        }
+
+        if (day % 4 === 0) {
+            let rent = Math.floor(200 * inf);
+            addLog(`<br>🔔 房東敲門了！(本期通膨房租：${rent} 元)`, "orange");
+            if (pa > 0) {
+                pa--; addLog("🏠 使用房屋保險單，免付房租！", "lime");
+            } else if (m >= rent) {
+                m -= rent; addLog(`💸 從現金支付房租 ${rent} 元。`, "orange");
+            } else if (bm >= rent) {
+                bm -= rent; addLog(`💸 現金不夠！房東強行從銀行提款 ${rent} 元！`, "orange");
+            } else {
+                addLog("💀 你連銀行裡都沒錢，被踢出家門！遊戲結束！", "red");
+                m = 0; gameOver(); return;
+            }
+        }
+
+        if (day >= 30) {
+            addLog(`<br>🏆 恭喜通關！最後總資產：${m + bm} 元`, "gold");
+            gameOver(); return;
+        }
+        
+        addLog(`--- 第 ${day} 天 ---`);
+        updateUI();
+    }
+
+    function gameOver() {
+        updateUI();
+        document.getElementById("main-menu").innerHTML = "<button onclick='location.reload()'>🔄 重新開始</button>";
+    }
+
+    // 初始化 UI
+    updateUI();
+</script>
+</body>
+</html>
