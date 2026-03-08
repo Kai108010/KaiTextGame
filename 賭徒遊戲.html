@@ -227,14 +227,56 @@
 
     function gambleRoulette() {
         showPanel('main-menu');
-        addLog("🔫 你拿起了一把左輪手槍扣下扳機...");
-        if (Math.floor(Math.random() * 6) === 0) {
-            if (ro > 0) { ro--; addLog("💥 砰！機台保護抵銷了致命傷！", "yellow"); }
-            else { m = 0; addLog("💥 砰！你中彈了！現金全部歸零...", "red"); }
-        } else {
-            m += 500; addLog("😅 咔嚓！是空槍！你在生死邊緣活下來，獲得 500 元！", "lime");
+        
+        // 莊家隨機塞入 1 到 5 顆子彈
+        let bullets = Math.floor(Math.random() * 5) + 1; 
+        
+        // 獎金隨風險飆升：1顆500元、5顆直接2500元！
+        let reward = bullets * 500; 
+        
+        // 彈出視窗，給玩家最後的後悔機會
+        let play = confirm(`🔫 莊家冷笑著，在手槍裡塞入了【 ${bullets} 顆 】子彈 (死亡率 ${Math.round(bullets/6*100)}%)...\n\n贏了拿走 ${reward} 元！\n輸了要付天價醫藥費。\n\n你要玩命嗎？`);
+        
+        // 如果玩家選擇「取消」
+        if (!play) {
+            addLog(`退縮了！你看到 ${bullets} 顆子彈，嚥了口口水，決定不拿自己的命開玩笑。`, "gray");
+            return; // 退縮不消耗天數回合
         }
-        advanceTurn();
+
+        // 如果玩家選擇「確定」
+        addLog(`🔫 你雙手發抖，舉起裝了 ${bullets} 顆子彈的左輪手槍，扣下扳機...`);
+        
+        // 產生 0~5 的亂數，小於 bullets 代表中槍
+        if (Math.floor(Math.random() * 6) < bullets) {
+            if (ro > 0) { 
+                ro--; 
+                addLog("💥 砰！你中槍了！幸好「不賠錢機台」發揮神力抵銷了傷害！", "yellow"); 
+            } else {
+                // 醫藥費 1500 元，且跟著通膨越來越貴
+                let medFee = Math.floor(1500 * inf); 
+                addLog(`💥 砰！你中彈了！黑市醫生向你索取 ${medFee} 元急救費！`, "red");
+                
+                if (m >= medFee) {
+                    m -= medFee;
+                    addLog(`💸 你從口袋掏出 ${medFee} 元付清了醫藥費。`, "orange");
+                } else {
+                    let debt = medFee - m;
+                    m = 0; // 現金先被扣光
+                    if (bm >= debt) {
+                        bm -= debt;
+                        addLog(`🏦 現金不夠！醫生直接拿著你的提款卡，從銀行扣除了 ${debt} 元！`, "orange");
+                    } else {
+                        bm = 0;
+                        m = -1; // 現金變負數，準備迎接隔天的死亡結局
+                        addLog("💀 存款也不夠付！你被丟在醫院後巷等死...", "red");
+                    }
+                }
+            }
+        } else {
+            m += reward; 
+            addLog(`😅 咔嚓！是空槍！你在地獄門前走了一遭，抱走鉅款 ${reward} 元！`, "lime");
+        }
+        advanceTurn(); // 玩命結束，進入下一天
     }
 
     function bankAction(type) {
